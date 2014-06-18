@@ -1,0 +1,53 @@
+*************************************
+STATUS: Maintaining
+Repository: repnet module on Node.js, with codes for experimental evaluation
+Dependencies: Node.js version 0.11.13-release (Built from Source)
+*************************************
+Node.js Git Repository (the right version to support this module)
+	https://github.com/joyent/node/tree/v0.11.13-release
+
+
+
+*************************************
+USAGE
+*************************************
+"net=require('./repnet');" in the place of "net=require('net');" in your code
+Most Net module APIs are supported for now.
+
+NOTE: if file "repnet.net" is in the same directory of "server.js" and "client.js"
+
+
+
+*************************************
+Example Code Usage
+*************************************
+Run without changing directory
+
+The files whose filenames start with numbers are for cluster evalution.
+To do this, you will need two more files named IPLIST. Each one is for a rack (now 2 racks A and B are demanded).
+Also, file 1_connectserver.sh command requires clusterssh, a useful tool to enable simultanous ssh commands in a cluster.
+	Download Link: https://github.com/duncs/clusterssh
+
+//Sample IPLIST FILE: serverlistA.list
+//First Row: the number of servers in rackA
+//Rest of the file : NAT port numbers, (one per row), because our cluster is behind a NAT.
+//To Change this to IP addresses, you should  
+5
+30101
+30102
+30103
+30104
+30105
+30106
+//End of file of serverlistA.list
+
+
+*************************************
+IMPORTANT NOTES
+*************************************
+Though evaluation among cluster servers has a bunch of prerequisites, our sample code is still available to run on localhost.
+Please read the usage headers of <client.js, repclient.js, repsynclient.js>, just with "node server.js" running on localhost!
+
+
+UPDATE LOGS:
+18, June, 2014		Sample code submitted! Expect more comments in the repnet.js module!!!!!

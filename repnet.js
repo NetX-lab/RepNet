@@ -15,6 +15,11 @@ var DUP_CONN = 1;
 var CHOSEN = 2;
 var ENDED = 3;
 
+// local port range
+var LOCAL_PORT_LOW = 32768;
+var LOCAL_PORT_HIGH = 61000;
+
+var flag_repsyn = false;
 
 //******* Constructor of an Queue Item
 //****** Parameter: a ONE_CONN repnet.socket object
@@ -40,7 +45,7 @@ function findItem(self, netsocket) {
   var i = 1;
   while (typeof self.queue[i] !== "undefined") {
     // whether the <port:ip_addr> tuple is matched
-    if ( //self.queue[i].port == netsocket.remotePort && 
+    if ( self.queue[i].port == netsocket.remotePort && 
         self.queue[i].ip == netsocket.remoteAddress) {
       var item = self.queue[i];
       self.queue.splice(i,1);
@@ -65,6 +70,10 @@ function getconnection(self, conn) {
     // Add event listener
     s.conn1.on('data', function(data) {getdata(s, data, true)});
     s.conn1.on('end', function() {getend(s, true)});
+    s.conn1.on('error', function() {
+      if (s.state == ONE_CONN || s.state == CHOSEN) s.emit('error');
+      getend(s, true);
+    })
 
     // push into the queue
     self.queue.push(QItem(s));
@@ -89,6 +98,11 @@ function getconnection(self, conn) {
     //Add event listeners
     s.conn2.on('data', function(data) {getdata(s, data, false)});
     s.conn2.on('end', function() {getend(s, false)});
+    s.conn1.on('error', function() {
+      if (s.state == ONE_CONN || s.state == CHOSEN) s.emit('error');
+      getend(s, true);
+    })
+    s.conn2.on('error', function() {getend(s, false);});
 
     debug("Two port numbers", s.conn1.remotePort, s.conn2.remotePort);
     for (var i = 0; i < s.archive_write.length; i++) {
@@ -103,24 +117,24 @@ function getdata(self, data, index) {
     self.readcount[0] += data.length;
     newcount = self.readcount[0] - self.readcount[1];
     if (newcount > 0) {
+      debug("conn1 is reporting ", newcount, "byte(s) of new chunk");
       newchunk = data.slice(data.length - newcount);
       self.emit('data', newchunk);
     }
-    debug("conn1 is reporting ", newcount, "byte(s) of new chunk");
   }
   else { //conn2
     self.readcount[1] += data.length;
     newcount = self.readcount[1] - self.readcount[0];
     if (newcount > 0) {
+      debug("conn2 is reporting ", newcount, "byte(s) of new chunk");
       newchunk = data.slice(data.length - newcount);
       self.emit('data', newchunk);
     }
-    debug("conn2 is reporting ", newcount, "byte(s) of new chunk");
   }
 }
 
 function getend(self, index){
-  debug('Socket state before ended:', self.state);
+  debug("state before ened, index", self.state, index);
   if (index) { // conn1 is ended
     switch (self.state) {
       case ONE_CONN:
@@ -130,13 +144,13 @@ function getend(self, index){
       case DUP_CONN:
         self.state = CHOSEN;
         self.conn1 = self.conn2;
+        self.conn2 = undefined;
         break;
       case CHOSEN:
         self.state = ENDED;
         self.emit('end');
         break;
       default:
-        self.emit('error');
         break;
     }
   }
@@ -144,14 +158,13 @@ function getend(self, index){
     switch (self.state) {
       case DUP_CONN:
         self.state = CHOSEN;
-        self.conn2 = self.conn1;
+        self.conn2 = undefined;
         break;
       case CHOSEN:
         self.state = ENDED;
         self.emit('end');
         break;
       default:
-        self.emit('error');
         break;
     }
   }
@@ -186,7 +199,7 @@ function Server() {
     } while(typeof self.queue[0].port !== 'undefined');
     self.queue.push(QItem());
     //debug("Updated Queue Length:", self.queue.length);
-  }, 1000);  
+  }, 200);  
 
   // listen function
   this.listen = function() {
@@ -234,62 +247,132 @@ function Socket() {
   this.archive_write = [];
   this.readcount = [0, 0];
   this.queueItem_handle = undefined;
-  this.flag_repsyn = false
   
   var self = this;
 
   //********* Connect Function 
   //********* Accept 1 port arguments
   this.connect = function() {
-    var args = [];
-    for (var i = 0; i < arguments.length; i++) {
-        args.push(arguments[i]);
-    }
-    var callback = args[args.length-1];
-    if (!util.isFunction(callback)) { // don't have a listener
-      var flag_connect = false;
-      var ifconnect = function() {
-        if (!flag_connect) {
-          flag_connect = true;
-          self.emit('connect');
+    if (!flag_repsyn) { // not a repsyn conn
+      var args = [];
+      for (var i = 0; i < arguments.length; i++) {
+          args.push(arguments[i]);
+      }
+      var callback = args[args.length-1];
+      if (!util.isFunction(callback)) { // don't have a listener
+        var flag_connect = false;
+        var ifconnect = function() {
+          if (!flag_connect) {
+            flag_connect = true;
+            self.emit('connect');
+          }
+          else {
+            if (flag_repsyn) {
+              this.end();
+              self.state = CHOSEN;
+            }
+          }
         }
-        else {
-          if (self.flag_repsyn) {
-            this.end();
-            self.state = CHOSEN;
+        args.push(ifconnect);
+        // Generate a random port number
+        var localport = Math.floor(Math.random() * (LOCAL_PORT_HIGH - LOCAL_PORT_LOW)) + LOCAL_PORT_LOW;
+        console.log("Random Port:", localport);
+
+        self.state = DUP_CONN;
+        self.conn1 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
+        self.conn2 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
+        self.conn1.connect.apply(self.conn1, args);
+        args[0] += 1;
+        self.conn2.connect.apply(self.conn2, args);
+      }
+      else { // callback is the 'connect' listener
+        var flag_connect = false;
+        var ifconnect = function() {
+          if (!flag_connect) {
+            flag_connect = true;
+            callback.call(self);
+          }
+        }
+        args.push(ifconnect);
+        self.state = DUP_CONN;
+        // Generate a random port number
+        var localport = Math.floor(Math.random() * (LOCAL_PORT_HIGH - LOCAL_PORT_LOW)) + LOCAL_PORT_LOW;
+        debug("Random Port:", localport);
+
+        self.conn1 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
+        self.conn2 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
+
+        self.conn1.connect.apply(self.conn1, args);
+        args[0] += 1;
+        self.conn2.connect.apply(self.conn2, args);
+      }
+
+      // each new is followed by the event listeners
+      this.conn1.on('data', function(data) {getdata(self, data, true)});
+      this.conn2.on('data', function(data) {getdata(self, data, false)});
+      this.conn1.on('end', function() {getend(self, true)});
+      this.conn2.on('end', function() {getend(self, false)});
+      this.conn1.on('error', function() {
+        if (this.state == ONE_CONN || this.state == CHOSEN) this.emit('error');
+        getend(this, true);
+      })
+      this.conn2.on('error', function() {getend(this, false);});
+    }
+    // is a repsyn conn
+    else {
+      var args = [];
+      for (var i = 0; i < arguments.length; i++) {
+          args.push(arguments[i]);
+      }
+      var callback = args[args.length-1];
+      if (!util.isFunction(callback)) { // don't have a listener
+        var flag_connect = false;
+        var ifconnect = function() {
+          if (!flag_connect) {
+            flag_connect = true;
+            self.conn1 = this;
+            self.state = CHOSEN
+            self.emit('connect');
+          }
+          else {
+            if (flag_repsyn) {
+              this.end();
+            }
+          }
+        }
+      }
+      else { // have a listener
+        var flag_connect = false;
+        var ifconnect = function() {
+          if (!flag_connect) {
+            flag_connect = true;
+            self.conn1 = this;
+            self.state = CHOSEN
+            callback.call(self.conn1)
+          }
+          else {
+            if (flag_repsyn) {
+              this.end();
+            }
           }
         }
       }
       args.push(ifconnect);
-      self.conn1 = new net.Socket();
-      self.conn2 = new net.Socket();
-      self.conn1.connect.apply(self.conn1, args);
-      args[0] += 1;
-      self.conn2.connect.apply(self.conn2, args);
-      self.state = DUP_CONN;
-    }
-    else { // callback is the 'connect' listener
-      var flag_connect = false;
-      var ifconnect = function() {
-        if (!flag_connect) {
-          flag_connect = true;
-          callback.call(self);
-        }
-      }
-      args.push(ifconnect);
-      self.state = DUP_CONN;
-      self.conn1 = new net.Socket();
-      self.conn2 = new net.Socket();
-      self.conn1.connect.apply(self.conn1, args);
-      args[0] += 1;
-      self.conn2.connect.apply(self.conn2, args);
-    }
+      var localport = Math.floor(Math.random() * (LOCAL_PORT_HIGH - LOCAL_PORT_LOW)) + LOCAL_PORT_LOW;
+      debug("Random Port:", localport);
+      self.conn1 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
+      self.conn2 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
 
-    // each new is followed by the event listeners
-    this.conn1.on('data', function(data) {getdata(self, data, true)});
-    this.conn2.on('data', function(data) {getdata(self, data, false)});
-    this.conn1.on('end', function() {getend(self, true)});
-    this.conn2.on('end', function() {getend(self, false)});
+      self.conn1.connect.apply(self.conn1, args);
+      args[0] += 1;
+      self.conn2.connect.apply(self.conn2, args);
+      this.conn1.on('data', function(data) {getdata(self, data, true)});
+      this.conn1.on('end', function() {getend(self, true)});
+      this.conn1.on('error', function() {
+        if (this.state == ONE_CONN || this.state == CHOSEN) this.emit('error');
+        getend(this, true);
+      })
+    }
   }
 
   //********** Write Function
@@ -340,8 +423,20 @@ function Socket() {
   }
 
   this.end = function(){
-    self.conn1.end.apply(self.conn1, arguments);
-    self.conn2.end.apply(self.conn2, arguments);
+    switch (self.state){
+      case ONE_CONN:
+        self.conn1.end.apply(self.conn1, arguments);
+        break;
+      case DUP_CONN:
+        self.conn1.end.apply(self.conn1, arguments);
+        self.conn2.end.apply(self.conn2, arguments);
+        break;
+      case CHOSEN:
+        self.conn1.end.apply(self.conn1, arguments);
+        break;
+      default:
+        break;
+    }
   }
   
   
@@ -353,3 +448,8 @@ exports.createServer = function() {
   return Server.apply(this, arguments);
 };
 
+exports.connect = function() {
+  conn = new Socket();
+  conn.connect.apply(conn, arguments);
+  return conn;
+}
