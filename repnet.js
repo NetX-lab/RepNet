@@ -7,9 +7,10 @@ var stream = require('stream');
 var timers = require('timers');
 var util = require('util');
 
+// Usage: run with NODE_DEBUG=repnet node XXXX.js
 var debug = util.debuglog('repnet');
 
-// state names
+// repsocket state names
 var ONE_CONN = 0;
 var DUP_CONN = 1;
 var CHOSEN = 2;
@@ -19,6 +20,8 @@ var ENDED = 3;
 var LOCAL_PORT_LOW = 32768;
 var LOCAL_PORT_HIGH = 61000;
 
+// Flag to enable RepSYN instead of RepFlow.
+// Usage: net.flag_repsyn = true
 var flag_repsyn = false;
 
 //******* Constructor of an Queue Item
@@ -56,7 +59,10 @@ function findItem(self, netsocket) {
   return undefined;
 }
 
-
+//****** Function: The callback of 'connect' evemt (in a net.socket object)
+//****** Parameter: <conn> the handle of new net.socket connection, emited by 'connect' event
+//****** Process: 1. search the item in the waiting list;
+//******          2. new a repnet.socket or insert this new conn as the second member of an existing repnet.socket
 function getconnection(self, conn) {
   item = findItem(self, conn);
 
@@ -95,7 +101,7 @@ function getconnection(self, conn) {
     s.state = DUP_CONN;
     debug("Matched! Queue length:", self.queue.length, "repnet.socket state", s.state);
 
-    //Add event listeners
+    //Add appropriate event listeners
     s.conn2.on('data', function(data) {getdata(s, data, false)});
     s.conn2.on('end', function() {getend(s, false)});
     s.conn1.on('error', function() {
@@ -105,6 +111,7 @@ function getconnection(self, conn) {
     s.conn2.on('error', function() {getend(s, false);});
 
     debug("Two port numbers", s.conn1.remotePort, s.conn2.remotePort);
+    //execute the archived commands on the slower conn
     for (var i = 0; i < s.archive_write.length; i++) {
       conn.write.apply(conn, s.archive_write[i]);
     };
@@ -113,7 +120,8 @@ function getconnection(self, conn) {
 
 
 function getdata(self, data, index) {
-  if (index) { //conn1
+  if (index) { 
+    // if conn1 gets new data
     self.readcount[0] += data.length;
     newcount = self.readcount[0] - self.readcount[1];
     if (newcount > 0) {
@@ -122,7 +130,8 @@ function getdata(self, data, index) {
       self.emit('data', newchunk);
     }
   }
-  else { //conn2
+  else { 
+    // if conn2 gets new data
     self.readcount[1] += data.length;
     newcount = self.readcount[1] - self.readcount[0];
     if (newcount > 0) {
@@ -137,16 +146,17 @@ function getend(self, index){
   debug("state before ened, index", self.state, index);
   if (index) { // conn1 is ended
     switch (self.state) {
-      case ONE_CONN:
+      case ONE_CONN: // ending the only connection
         self.state = ENDED;
         self.emit('end');
         break;
-      case DUP_CONN:
+      case DUP_CONN: // ending one of the two connections, convert to CHOSEN
         self.state = CHOSEN;
+        // in chosen mode, the working socket is always conn1
         self.conn1 = self.conn2;
         self.conn2 = undefined;
         break;
-      case CHOSEN:
+      case CHOSEN: // ending the only connection
         self.state = ENDED;
         self.emit('end');
         break;
@@ -156,21 +166,24 @@ function getend(self, index){
   }
   else { // conn2 is ended
     switch (self.state) {
-      case DUP_CONN:
+      case DUP_CONN: // convert to CHOSEN
         self.state = CHOSEN;
         self.conn2 = undefined;
         break;
-      case CHOSEN:
+      case CHOSEN: // ending the only connection
         self.state = ENDED;
         self.emit('end');
         break;
-      default:
+      default: // in CHOSEN state, conn2 is always unvalid
         break;
     }
   }
 }
 
+
+//****** The repnet.server class
 function Server() {
+  // Adapt to parameter variations, become a constructor
   if (!(this instanceof Server)) {
     if (arguments.length == 2) return new Server(arguments[0], arguments[1]);
     if (arguments.length == 1) return new Server(arguments[0]);
@@ -179,7 +192,7 @@ function Server() {
 
   events.EventEmitter.call(this);
 
-  // constructor
+  // member variables
   var args = [];
   for (var i = 0; i < arguments.length; i++) {
       args.push(arguments[i]);
@@ -189,9 +202,9 @@ function Server() {
   this.server1 = net.createServer(args);
   this.server2 = net.createServer(args);
   this.queue = [QItem(), QItem(), QItem(), QItem(), QItem()];
-  var self = this;
+  var self = this; // use self to pass server handle to the member functions
 
-  // update the queue per 1000ms
+  // update the queue per 200ms
   setInterval(function(){
     do {
       var trash = self.queue.shift();
@@ -203,18 +216,21 @@ function Server() {
 
   // listen function
   this.listen = function() {
+    // normalize parameters
     var args = [];
     for (var i = 0; i < arguments.length; i++) {
         args.push(arguments[i]);
     }
     callback = args.pop();
+    // if there is no callback function, the last parameter should be pushed back
     if (!util.isFunction(callback)) args.push(callback);
+    // twp port numbers
     port = args.shift();
     port2 = port + 1;
     if (args.length > 0) host = args.shift(); else host = 'localhost';
     if (args.length > 0) backlog = args.shift(); else backlog = null;
 
-    var flag_listen = 0;
+    var flag_listen = 0; // flag to make sure when to call the callback function
     self.server1.listen(port, host, backlog, function() {
       flag_listen += 1;
       if (flag_listen == 2) callback.apply(this);
@@ -234,9 +250,10 @@ function Server() {
   })
 };
 util.inherits(Server, events.EventEmitter);
+// exports as an API
 exports.Server = Server;
 
-
+//****** The repnet.socket class
 function Socket() {
   //********** The constructor 
   if (!(this instanceof Socket)) return new Socket(options);
@@ -248,7 +265,7 @@ function Socket() {
   this.readcount = [0, 0];
   this.queueItem_handle = undefined;
   
-  var self = this;
+  var self = this; // use self to pass server handle to the member functions
 
   //********* Connect Function 
   //********* Accept 1 port arguments
@@ -376,7 +393,7 @@ function Socket() {
   }
 
   //********** Write Function
-  //********** Depend on state
+  //********** Depend on state while take care of possible callback parameter
   this.write = function() {
     var data = arguments[0];
     var args = [];
@@ -385,7 +402,7 @@ function Socket() {
     }
     
     switch (self.state) {
-      case ONE_CONN:
+      case ONE_CONN: // should write on conn1, and then archive the commands
         self.conn1.write.apply(self.conn1, args);
         callback = args.pop();
         if (!util.isFunction(callback)) {
@@ -393,7 +410,7 @@ function Socket() {
         }
         self.archive_write.push(args);
         break;
-      case DUP_CONN:
+      case DUP_CONN: // should write on both conncetions
         callback = args.pop();
         if (!util.isFunction(callback)) {
           args.push(callback);
@@ -413,7 +430,7 @@ function Socket() {
           self.conn2.write.apply(self.conn2, args);
         }
         break;
-      case CHOSEN:
+      case CHOSEN: // should write on conn1
         self.conn1.write.apply(self.conn1, args);
         break;
       default:
