@@ -118,7 +118,11 @@ function getconnection(self, conn) {
   }
 }
 
-
+//****** Function: The callback of 'data' evemt (in a net.socket object)
+//****** Parameter: <data> newly emitted data
+//******            <index> to differentiate which conn has got data. true for conn1, false for conn2.
+//****** Process: check the data count. 
+//****** if the new chunk is detected, it will be emited along with the 'data' event in a net.repsockt object.
 function getdata(self, data, index) {
   if (index) { 
     // if conn1 gets new data
@@ -142,6 +146,10 @@ function getdata(self, data, index) {
   }
 }
 
+//****** Function: The callback of 'end' evemt (in a net.socket object)
+//****** Parameter: <index> to differentiate which conn has got data. true for conn1, false for conn2.
+//****** Process: check the state of current net.repsocket object. 
+//******          do decisions based on which sub-socket is going to be ended
 function getend(self, index){
   debug("state before ened, index", self.state, index);
   if (index) { // conn1 is ended
@@ -224,7 +232,7 @@ function Server() {
     callback = args.pop();
     // if there is no callback function, the last parameter should be pushed back
     if (!util.isFunction(callback)) args.push(callback);
-    // twp port numbers
+    // two port numbers
     port = args.shift();
     port2 = port + 1;
     if (args.length > 0) host = args.shift(); else host = 'localhost';
@@ -294,10 +302,11 @@ function Socket() {
         // Generate a random port number
         var localport = Math.floor(Math.random() * (LOCAL_PORT_HIGH - LOCAL_PORT_LOW)) + LOCAL_PORT_LOW;
         console.log("Random Port:", localport);
-
+        // bind to the same local port, using a little trick.
         self.state = DUP_CONN;
         self.conn1 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
         self.conn2 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
+        // connect!
         self.conn1.connect.apply(self.conn1, args);
         args[0] += 1;
         self.conn2.connect.apply(self.conn2, args);
@@ -315,16 +324,16 @@ function Socket() {
         // Generate a random port number
         var localport = Math.floor(Math.random() * (LOCAL_PORT_HIGH - LOCAL_PORT_LOW)) + LOCAL_PORT_LOW;
         debug("Random Port:", localport);
-
+        // bind to the same local port, using a little trick.
         self.conn1 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
         self.conn2 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
-
+        // connect!
         self.conn1.connect.apply(self.conn1, args);
         args[0] += 1;
         self.conn2.connect.apply(self.conn2, args);
       }
 
-      // each new is followed by the event listeners
+      // register the event listeners
       this.conn1.on('data', function(data) {getdata(self, data, true)});
       this.conn2.on('data', function(data) {getdata(self, data, false)});
       this.conn1.on('end', function() {getend(self, true)});
@@ -342,7 +351,8 @@ function Socket() {
           args.push(arguments[i]);
       }
       var callback = args[args.length-1];
-      if (!util.isFunction(callback)) { // don't have a listener
+      if (!util.isFunction(callback)) { 
+        // don't have a listener, so we have to emit the connect event
         var flag_connect = false;
         var ifconnect = function() {
           if (!flag_connect) {
@@ -358,7 +368,8 @@ function Socket() {
           }
         }
       }
-      else { // have a listener
+      else { 
+        // have a listener, so we have to call the connect event right after the first connection is connected
         var flag_connect = false;
         var ifconnect = function() {
           if (!flag_connect) {
@@ -374,15 +385,18 @@ function Socket() {
           }
         }
       }
+      // make up the new callback function
       args.push(ifconnect);
       var localport = Math.floor(Math.random() * (LOCAL_PORT_HIGH - LOCAL_PORT_LOW)) + LOCAL_PORT_LOW;
       debug("Random Port:", localport);
+      // bind to the same local port, using a little trick.
       self.conn1 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
       self.conn2 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
-
+      // connect!
       self.conn1.connect.apply(self.conn1, args);
       args[0] += 1;
       self.conn2.connect.apply(self.conn2, args);
+      // register the event listeners
       this.conn1.on('data', function(data) {getdata(self, data, true)});
       this.conn1.on('end', function() {getend(self, true)});
       this.conn1.on('error', function() {
@@ -440,6 +454,7 @@ function Socket() {
   }
 
   this.end = function(){
+    // depend on which one is ended.
     switch (self.state){
       case ONE_CONN:
         self.conn1.end.apply(self.conn1, arguments);
