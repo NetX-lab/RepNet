@@ -74,8 +74,8 @@ function getconnection(self, conn) {
     s.state = ONE_CONN;
 
     // Add event listener
-    s.conn1.on('data', function(data) {getdata(s, data, true)});
-    s.conn1.on('end', function() {getend(s, true)});
+    s.conn1.on('data', function(data) {getdata(s, data, true);});
+    s.conn1.on('end', function() {getend(s, true);});
     s.conn1.on('error', function() {
       if (s.state == ONE_CONN || s.state == CHOSEN) s.emit('error');
       getend(s, true);
@@ -102,8 +102,8 @@ function getconnection(self, conn) {
     debug("Matched! Queue length:", self.queue.length, "repnet.socket state", s.state);
 
     //Add appropriate event listeners
-    s.conn2.on('data', function(data) {getdata(s, data, false)});
-    s.conn2.on('end', function() {getend(s, false)});
+    s.conn2.on('data', function(data) {getdata(s, data, false);});
+    s.conn2.on('end', function() {getend(s, false);});
     s.conn1.on('error', function() {
       if (s.state == ONE_CONN || s.state == CHOSEN) s.emit('error');
       getend(s, true);
@@ -195,7 +195,7 @@ function Server() {
   if (!(this instanceof Server)) {
     if (arguments.length == 2) return new Server(arguments[0], arguments[1]);
     if (arguments.length == 1) return new Server(arguments[0]);
-    if (arguments.length == 0) return new Server();
+    if (arguments.length === 0) return new Server();
   }
 
   events.EventEmitter.call(this);
@@ -278,6 +278,10 @@ function Socket() {
   //********* Connect Function 
   //********* Accept 1 port arguments
   this.connect = function() {
+    // Start Connection --> Start timer
+    var starttime = process.hrtime();
+    var endtime;
+
     if (!flag_repsyn) { // not a repsyn conn
       var args = [];
       for (var i = 0; i < arguments.length; i++) {
@@ -288,6 +292,16 @@ function Socket() {
         var flag_connect = false;
         var ifconnect = function() {
           if (!flag_connect) {
+            endtime = process.hrtime(starttime);
+            endtime = endtime[1]/1000000 + endtime[0] * 1000;
+            // endtime is the probe RTT in ms
+            if (endtime > 1) {
+              flag_repsyn = true;
+            }
+            else {
+              flag_repsyn = false;
+            }
+            
             flag_connect = true;
             self.emit('connect');
           }
@@ -334,10 +348,10 @@ function Socket() {
       }
 
       // register the event listeners
-      this.conn1.on('data', function(data) {getdata(self, data, true)});
-      this.conn2.on('data', function(data) {getdata(self, data, false)});
-      this.conn1.on('end', function() {getend(self, true)});
-      this.conn2.on('end', function() {getend(self, false)});
+      this.conn1.on('data', function(data) {getdata(self, data, true);});
+      this.conn2.on('data', function(data) {getdata(self, data, false);});
+      this.conn1.on('end', function() {getend(self, true);});
+      this.conn2.on('end', function() {getend(self, false);});
       this.conn1.on('error', function() {
         if (this.state == ONE_CONN || this.state == CHOSEN) this.emit('error');
         getend(this, true);
@@ -358,7 +372,7 @@ function Socket() {
           if (!flag_connect) {
             flag_connect = true;
             self.conn1 = this;
-            self.state = CHOSEN
+            self.state = CHOSEN;
             self.emit('connect');
           }
           else {
@@ -375,8 +389,8 @@ function Socket() {
           if (!flag_connect) {
             flag_connect = true;
             self.conn1 = this;
-            self.state = CHOSEN
-            callback.call(self.conn1)
+            self.state = CHOSEN;
+            callback.call(self.conn1);
           }
           else {
             if (flag_repsyn) {
@@ -397,8 +411,8 @@ function Socket() {
       args[0] += 1;
       self.conn2.connect.apply(self.conn2, args);
       // register the event listeners
-      this.conn1.on('data', function(data) {getdata(self, data, true)});
-      this.conn1.on('end', function() {getend(self, true)});
+      this.conn1.on('data', function(data) {getdata(self, data, true);});
+      this.conn1.on('end', function() {getend(self, true);});
       this.conn1.on('error', function() {
         if (this.state == ONE_CONN || this.state == CHOSEN) this.emit('error');
         getend(this, true);
@@ -434,7 +448,7 @@ function Socket() {
         else {
           var write_status = false;
           var setstatus = function() {
-            if (write_status == false) {
+            if (write_status === false) {
               write_status = true;
               callback.apply(self);
             }
