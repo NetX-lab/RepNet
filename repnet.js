@@ -24,6 +24,11 @@ var LOCAL_PORT_HIGH = 61000;
 // Usage: net.flag_repsyn = true
 var flag_repsyn = false;
 
+function createTCP() {
+  var TCP = process.binding('tcp_wrap').TCP;
+  return new TCP;
+}
+
 //******* Constructor of an Queue Item
 //****** Parameter: a ONE_CONN repnet.socket object
 //*******           (if omitted) set port as undefined
@@ -304,8 +309,12 @@ function Socket() {
         console.log("Random Port:", localport);
         // bind to the same local port, using a little trick.
         self.state = DUP_CONN;
-        self.conn1 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
-        self.conn2 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
+        var _handle1 = createTCP();
+        _handle1.bind('0.0.0.0', localport);
+        var _handle2 = createTCP();
+        _handle2.bind('0.0.0.0', localport);
+        self.conn1 = new net.Socket({ handle: _handle1});
+        self.conn2 = new net.Socket({ handle: _handle2});
         // connect!
         self.conn1.connect.apply(self.conn1, args);
         args[0] += 1;
@@ -325,8 +334,12 @@ function Socket() {
         var localport = Math.floor(Math.random() * (LOCAL_PORT_HIGH - LOCAL_PORT_LOW)) + LOCAL_PORT_LOW;
         debug("Random Port:", localport);
         // bind to the same local port, using a little trick.
-        self.conn1 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
-        self.conn2 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
+        var _handle1 = createTCP();
+        _handle1.bind('0.0.0.0', localport);
+        var _handle2 = createTCP();
+        _handle2.bind('0.0.0.0', localport);
+        self.conn1 = new net.Socket({ handle: _handle1});
+        self.conn2 = new net.Socket({ handle: _handle2});
         // connect!
         self.conn1.connect.apply(self.conn1, args);
         args[0] += 1;
@@ -390,8 +403,12 @@ function Socket() {
       var localport = Math.floor(Math.random() * (LOCAL_PORT_HIGH - LOCAL_PORT_LOW)) + LOCAL_PORT_LOW;
       debug("Random Port:", localport);
       // bind to the same local port, using a little trick.
-      self.conn1 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
-      self.conn2 = new net.Socket({ handle: net._createServerHandle('127.0.0.1', localport, 4)});
+      var _handle1 = createTCP();
+      _handle1.bind('0.0.0.0', localport);
+      var _handle2 = createTCP();
+      _handle2.bind('0.0.0.0', localport);
+      self.conn1 = new net.Socket({ handle: _handle1});
+      self.conn2 = new net.Socket({ handle: _handle2});
       // connect!
       self.conn1.connect.apply(self.conn1, args);
       args[0] += 1;
