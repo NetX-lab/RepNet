@@ -8,7 +8,19 @@ var timers = require('timers');
 var util = require('util');
 
 // Usage: run with NODE_DEBUG=repnet node XXXX.js
-var debug = util.debuglog('repnet');
+var debug;
+if (process.env.NODE_DEBUG && /net/.test(process.env.NODE_DEBUG)) {
+  var pid = process.pid;
+  debug = function(x) {
+    // if console is not set up yet, then skip this.
+    if (!console.error)
+      return;
+    console.error('NET: %d', pid,
+                  util.format.apply(util, arguments).slice(0, 500));
+  };
+} else {
+  debug = function() { };
+}
 
 // repsocket state names
 var ONE_CONN = 0;
@@ -91,7 +103,7 @@ function getconnection(self, conn) {
     debug("Push New Item. Queue length:", self.queue.length);
 
     // if there is a connection listener as a callback of listen
-    if (util.isFunction(self.connectListener)) {
+    if (typeof self.connectListener === 'function') {
       self.connectListener.call(self, s);
       debug("connectListener called: (local:remote)", conn.localPort, conn.remotePort);
     }
@@ -211,7 +223,7 @@ function Server() {
       args.push(arguments[i]);
   }
   this.connectListener = args.pop();
-  if (!util.isFunction(this.connectListener)) args.push(this.connectListener);
+  if (typeof this.connectListener !== 'function') args.push(this.connectListener);
   this.server1 = net.createServer(args);
   this.server2 = net.createServer(args);
   this.queue = [QItem(), QItem(), QItem(), QItem(), QItem()];
@@ -236,7 +248,7 @@ function Server() {
     }
     callback = args.pop();
     // if there is no callback function, the last parameter should be pushed back
-    if (!util.isFunction(callback)) args.push(callback);
+    if (typeof callback !== 'function') args.push(callback);
     // two port numbers
     port = args.shift();
     port2 = port + 1;
@@ -289,7 +301,7 @@ function Socket() {
           args.push(arguments[i]);
       }
       var callback = args[args.length-1];
-      if (!util.isFunction(callback)) { // don't have a listener
+      if (typeof callback !== 'function') { // don't have a listener
         var flag_connect = false;
         var ifconnect = function() {
           if (!flag_connect) {
@@ -364,7 +376,7 @@ function Socket() {
           args.push(arguments[i]);
       }
       var callback = args[args.length-1];
-      if (!util.isFunction(callback)) { 
+      if (typeof callback !== 'funcion') { 
         // don't have a listener, so we have to emit the connect event
         var flag_connect = false;
         var ifconnect = function() {
@@ -436,14 +448,14 @@ function Socket() {
       case ONE_CONN: // should write on conn1, and then archive the commands
         self.conn1.write.apply(self.conn1, args);
         callback = args.pop();
-        if (!util.isFunction(callback)) {
+        if (typeof callback !== 'function') {
           args.push(callback);
         }
         self.archive_write.push(args);
         break;
       case DUP_CONN: // should write on both conncetions
         callback = args.pop();
-        if (!util.isFunction(callback)) {
+        if (typeof callback !== 'funcion') {
           args.push(callback);
           self.conn1.write.apply(self.conn1, args);
           self.conn2.write.apply(self.conn2, args);
